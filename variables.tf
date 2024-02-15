@@ -1,0 +1,9 @@
+variable "project_id" {}
+variable "region" {}
+variable "vpc_name" {}
+variable "webapp_subnet_name" {}
+variable "webapp_subnet_cidr" {}
+variable "db_subnet_name" {}
+variable "db_subnet_cidr" {}
+variable "webapp_route_name" {}
+variable "internet_gateway_name" {}
