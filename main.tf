@@ -2,7 +2,7 @@
 resource "google_project_service" "compute_engine" {
   project = var.project_id
   service = "compute.googleapis.com"
-}
+
 
 # Create VPC
 resource "google_compute_network" "my_vpc" {
