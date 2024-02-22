@@ -84,7 +84,8 @@ resource "google_compute_instance" "web_instance" {
   boot_disk {
     initialize_params {
       image = var.boot_disk_image  
-      size  = var.boot_disk_size  
+      size  = var.boot_disk_size 
+      type  = var.boot_disk_type  
     }
   }
 
