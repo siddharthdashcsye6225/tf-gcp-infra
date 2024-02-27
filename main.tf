@@ -14,11 +14,11 @@ resource "google_compute_network" "vpc_network" {
 
 # Create Global Internal IP Address Block for VPC Peering 
 resource "google_compute_global_address" "private_ip_block" {
-  name          = "private-ip-block"
-  purpose       = "VPC_PEERING"
-  address_type  = "INTERNAL"
-  ip_version    = "IPV4"
-  prefix_length = 16
+  name          = var.vpc_peering_blockname
+  purpose       = var.vpc_peering_purpose
+  address_type  = var.vpc_peering_address_type
+  ip_version    = var.vpc_peering_ip_version
+  prefix_length = var.vpc_peering_prefix_length
   network       = google_compute_network.vpc_network.self_link
 }
 
@@ -101,18 +101,19 @@ resource "random_id" "db_name_suffix" {
 
   resource "google_sql_database_instance" "main_primary" {
   name             = "webapp-primary-${random_id.db_name_suffix.hex}"  #Terraform will randomly generate one when the instance is first created. This is done because after a name is used, it cannot be reused for up to one week.
-  database_version = "POSTGRES_14"
-  region           = "us-central1"
+  database_version = var.sql_instance_database_version
+  region           = var.sql_instance_database_region
   depends_on       = [google_service_networking_connection.private_vpc_connection]
 
 
   settings {
-    tier              = "db-f1-micro"  
-    availability_type = "REGIONAL"
-    disk_size         = 100  
+    tier              = var.sql_instance_database_tier
+    availability_type = var.sql_instance_database_availability_type
+    disk_size         = var.sql_instance_database_disk_size
+    disk_type = var.sql_instance_database_disk_type
     
     ip_configuration {
-      ipv4_enabled    = false
+      ipv4_enabled    = var.sql_instance_database_ip4enabled
       private_network = google_compute_network.vpc_network.self_link
       enable_private_path_for_google_cloud_services = true  
     }
@@ -120,7 +121,7 @@ resource "random_id" "db_name_suffix" {
     
   }
   # Add deletion_protection parameter
-  deletion_protection = false
+  deletion_protection = var.sql_instance_database_deletion_protection
 }
 
 # sql database 
@@ -131,7 +132,7 @@ resource "random_id" "db_name_suffix" {
 
 # sql database user 
 resource "google_sql_user" "cloudsql_user" {
-  name     = "webapp"
+  name     = var.database_name
   instance = google_sql_database_instance.main_primary.name
   password = random_password.cloudsql_password.result
 }
@@ -145,7 +146,7 @@ resource "random_password" "cloudsql_password" {
 
 #Firewall to restrict access to db instance to just the webapp vm 
 resource "google_compute_firewall" "cloudsql_access" {
-  name    = "allow-cloudsql-access"
+  name    = var.database_firewall_name
   network = google_compute_network.vpc_network.self_link
 
   allow {

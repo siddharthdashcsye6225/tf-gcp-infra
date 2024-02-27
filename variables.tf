@@ -24,4 +24,37 @@ variable "boot_disk_size" {
     type = number 
 }
 variable boot_disk_type {}
+variable vpc_peering_blockname {}
+variable vpc_peering_purpose {}
+variable vpc_peering_address_type {}
+variable vpc_peering_ip_version {}
+variable vpc_peering_prefix_length {}
 
+variable sql_instance_database_version {}
+variable sql_instance_database_region {}
+variable sql_instance_database_tier {}
+variable sql_instance_database_availability_type {
+    type = string 
+    default = "REGIONAL"
+}
+variable sql_instance_database_disk_size {
+    type = number
+    default = 100
+}
+variable sql_instance_database_disk_type {
+    type = string
+    default = "pd-ssd"
+}
+
+variable sql_instance_database_ip4enabled {
+    type = bool
+    default = false
+}
+
+variable sql_instance_database_deletion_protection {
+    type = bool 
+    default = false 
+}
+
+variable database_name {}
+variable database_firewall_name {}
