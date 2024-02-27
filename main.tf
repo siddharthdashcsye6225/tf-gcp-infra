@@ -12,6 +12,24 @@ resource "google_compute_network" "vpc_network" {
   delete_default_routes_on_create = true
 }
 
+# Create Global Internal IP Address Block for VPC Peering 
+resource "google_compute_global_address" "private_ip_block" {
+  name          = "private-ip-block"
+  purpose       = "VPC_PEERING"
+  address_type  = "INTERNAL"
+  ip_version    = "IPV4"
+  prefix_length = 16
+  network       = google_compute_network.vpc_network.self_link
+}
+
+#VPC Peering 
+resource "google_service_networking_connection" "private_vpc_connection" {
+  network                 = google_compute_network.vpc_network.self_link
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_ip_block.name]
+}
+
+
 # Create subnets
 resource "google_compute_subnetwork" "webapp_subnet1" {
   name          = var.webapp_subnet_name
@@ -26,6 +44,8 @@ resource "google_compute_subnetwork" "db_subnet1" {
   ip_cidr_range = var.db_subnet_cidr
   region        = var.region
 }
+
+# End of create Subnets 
 
 resource "google_compute_global_address" "internet_gateway_ip" {
   name  = var.internet_gateway_name
@@ -74,12 +94,79 @@ resource "google_compute_firewall" "deny_ssh_firewall" {
   target_tags = ["webapp-vm"]  # Use a list of allowed IP addresses or ranges
 }
 
+resource "random_id" "db_name_suffix" {
+  byte_length = 4
+}
+
+
+  resource "google_sql_database_instance" "main_primary" {
+  name             = "webapp-primary-${random_id.db_name_suffix.hex}"  #Terraform will randomly generate one when the instance is first created. This is done because after a name is used, it cannot be reused for up to one week.
+  database_version = "POSTGRES_14"
+  region           = "us-central1"
+  depends_on       = [google_service_networking_connection.private_vpc_connection]
+
+
+  settings {
+    tier              = "db-f1-micro"  
+    availability_type = "REGIONAL"
+    disk_size         = 100  
+    
+    ip_configuration {
+      ipv4_enabled    = false
+      private_network = google_compute_network.vpc_network.self_link
+      enable_private_path_for_google_cloud_services = true  
+    }
+
+    
+  }
+  # Add deletion_protection parameter
+  deletion_protection = false
+}
+
+# sql database 
+  resource "google_sql_database" "main" {
+    name     = "webapp"
+    instance = google_sql_database_instance.main_primary.name
+  }
+
+# sql database user 
+resource "google_sql_user" "cloudsql_user" {
+  name     = "webapp"
+  instance = google_sql_database_instance.main_primary.name
+  password = random_password.cloudsql_password.result
+}
+
+# resource block for generating random password 
+resource "random_password" "cloudsql_password" {
+  length           = 16
+  special          = true
+  override_special = "#"
+}
+
+#Firewall to restrict access to db instance to just the webapp vm 
+resource "google_compute_firewall" "cloudsql_access" {
+  name    = "allow-cloudsql-access"
+  network = google_compute_network.vpc_network.self_link
+
+  allow {
+    protocol = "tcp"
+    ports    = ["5432"]  # Assuming PostgreSQL default port
+  }
+
+  source_tags = ["webapp-vm"]
+    # Allow traffic from instances with this tag
+}
+
+output "cloudsql_private_ip" {
+  value = google_sql_database_instance.main_primary.private_ip_address
+}
+
 # Compute Engine instance
 resource "google_compute_instance" "web_instance" {
   name         = var.instance_name
   machine_type = var.machine_type
   zone         = var.zone
-  tags = ["webapp-vm"]
+  tags         = ["webapp-vm"]
 
   boot_disk {
     initialize_params {
@@ -90,14 +177,29 @@ resource "google_compute_instance" "web_instance" {
   }
 
   network_interface {
-    network = google_compute_network.vpc_network.self_link
+    network    = google_compute_network.vpc_network.self_link
     subnetwork = google_compute_subnetwork.webapp_subnet1.self_link
-    access_config {
-      
-    }
+    access_config {}
   }
-}
 
-#boot disk type in gce 
-#target tags in allow and deny should be instance tag 
-#network tier 
+  metadata_startup_script = <<-EOF
+    #!/bin/bash
+    # Replace the following placeholders with actual database configuration
+    export DB_HOST="${google_sql_database_instance.main_primary.private_ip_address}"
+    export DB_USER="${google_sql_user.cloudsql_user.name}"
+    export DB_PASS="${google_sql_user.cloudsql_user.password}"
+    export DB_NAME="${google_sql_database.main.name}"
+    
+    # Create a configuration file for the web application
+    echo "SQLALCHEMY_DATABASE_URL=postgresql://$DB_USER:$DB_PASS@$DB_HOST/$DB_NAME" > /tmp/database_url.ini
+    touch /tmp/endofstartupscript.txt 
+    chmod 777 /tmp/endofstartupscript.txt
+
+    sudo systemctl daemon-reload
+    sudo systemctl start webservice.service
+    sudo systemctl enable webservice.service
+
+    
+
+  EOF
+}
