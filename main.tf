@@ -185,7 +185,7 @@ resource "google_compute_instance" "web_instance" {
 
   service_account {
     email  = google_service_account.webapp_service_account.email
-    scopes = ["logging-write","monitoring-read","monitoring-write"]  
+    scopes = var.service_account_scope  
   }
 
   metadata_startup_script = <<-EOF
@@ -212,24 +212,24 @@ resource "google_compute_instance" "web_instance" {
 
 # Update DNS records
 resource "google_dns_record_set" "webapp_dns_record" {
-  managed_zone = "webapp-csye6225"
-  name    = "siddharthdash.me."
-  type    = "A"
-  ttl     = 300
+  managed_zone = var.dns_managed_zone
+  name    = var.domain_name
+  type    = var.dns_record_type
+  ttl     = var.dns_record_ttl
   rrdatas = [google_compute_instance.web_instance.network_interface[0].access_config[0].nat_ip]
 
 }
 
 # Create Service Account
 resource "google_service_account" "webapp_service_account" {
-  account_id   = "webapp-service-account"
-  display_name = "VM Service Account"
+  account_id   = var.service_account_name
+  display_name = var.service_account_display_name
 }
 
 # Bind IAM roles to the Service Account
 resource "google_project_iam_binding" "vm_service_account_binding" {
   project = var.project_id
-  role    = "roles/logging.admin"
+  role    = var.iam_role_binding1
   
   members = [
     "serviceAccount:${google_service_account.webapp_service_account.email}"
@@ -238,7 +238,7 @@ resource "google_project_iam_binding" "vm_service_account_binding" {
 
 resource "google_project_iam_binding" "vm_service_account_binding_monitoring" {
   project = var.project_id
-  role    = "roles/monitoring.metricWriter"
+  role    = var.iam_role_binding2
   
   members = [
     "serviceAccount:${google_service_account.webapp_service_account.email}"

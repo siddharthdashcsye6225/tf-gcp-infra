@@ -58,3 +58,14 @@ variable sql_instance_database_deletion_protection {
 
 variable database_name {}
 variable database_firewall_name {}
+variable dns_managed_zone {}
+variable domain_name {}
+variable dns_record_type {}
+variable dns_record_ttl {}
+variable service_account_name {}
+variable service_account_display_name {}
+variable iam_role_binding1 {}
+variable iam_role_binding2 {}
+variable service_account_scope {
+    type = list(string)
+}
