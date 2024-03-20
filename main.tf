@@ -185,7 +185,7 @@ resource "google_compute_instance" "web_instance" {
 
   service_account {
     email  = google_service_account.webapp_service_account.email
-    scopes = ["cloud-platform"]  
+    scopes = ["logging-write","monitoring-read","monitoring-write"]  
   }
 
   metadata_startup_script = <<-EOF
