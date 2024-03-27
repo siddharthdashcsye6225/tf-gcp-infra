@@ -168,6 +168,7 @@ resource "google_compute_instance" "web_instance" {
   machine_type = var.machine_type
   zone         = var.zone
   tags         = ["webapp-vm"]
+  allow_stopping_for_update = true
 
   boot_disk {
     initialize_params {
@@ -244,4 +245,91 @@ resource "google_project_iam_binding" "vm_service_account_binding_monitoring" {
     "serviceAccount:${google_service_account.webapp_service_account.email}"
   ]
 }
+
+# Create Pub/Sub topic
+resource "google_pubsub_topic" "verify_email_topic" {
+  name = var.pubsub_topic_name
+  message_retention_duration = var.message_retention_duration
+
+  message_storage_policy {
+    allowed_persistence_regions = [var.region]
+  }
+}
+
+# Create Pub/Sub subscription for the Cloud Function
+resource "google_pubsub_subscription" "verify_email_subscription" {
+  name  = var.google_pubsub_subscription_name
+  topic = google_pubsub_topic.verify_email_topic.name
+}
+
+# Bind IAM role to the service account to publish messages to the Pub/Sub topic
+resource "google_project_iam_binding" "pubsub_publisher_binding" {
+  project = var.project_id
+  role    = var.iam_role_binding_3
+
+  members = [
+    "serviceAccount:${google_service_account.webapp_service_account.email}"
+  ]
+}
+
+
+resource "google_cloudfunctions2_function" "process_pubsub" {
+  name        = var.cloud_fucntion_name
+  location      = var.cloud_function_location
+  description = var.cloud_function_description
+  build_config {
+    runtime     = var.cloud_function_runtime
+    entry_point = var.cloud_function_entry_point
+    source {
+      storage_source {
+        bucket = var.cloud_function_bucket
+        object = var.cloud_function_object
+      }
+    }
+  }
+  service_config {
+    max_instance_count = var.service_config_max_instance_count
+    min_instance_count = var.service_config_min_instance_count
+    available_memory   = var.service_config_available_memory
+    timeout_seconds    = var.timeout_seconds
+    environment_variables = {
+    DB_HOST = google_sql_database_instance.main_primary.private_ip_address
+    DB_USER = google_sql_user.cloudsql_user.name
+    DB_PASS = google_sql_user.cloudsql_user.password
+    DB_NAME = google_sql_database.main.name
+    }
+
+    ingress_settings               = var.cloud_function_ingress_settings
+    all_traffic_on_latest_revision = true
+    service_account_email          = google_service_account.webapp_service_account.email
+    vpc_connector = google_vpc_access_connector.vpc_connector.id
+
+  }
+  event_trigger {
+    trigger_region = var.event_trigger_region
+    event_type     = var.event_trigger_event_type
+    pubsub_topic   = google_pubsub_topic.verify_email_topic.id
+    retry_policy   = var.event_trigger_retry_policy
+  }
+
+ # depends_on = [
+ #   google_sql_database_instance.main_primary,
+ #   google_sql_user.cloudsql_user,
+ #   google_pubsub_topic.verify_email_topic
+ # ]
+}
+
+resource "google_vpc_access_connector" "vpc_connector" {
+  name                   = var.vpc_connector_name
+  region                 = var.vpc_connector_region
+  network                = google_compute_network.vpc_network.name
+  ip_cidr_range          = var.vpc_connector_cidr_range
+  min_instances          = var.vpc_connector_min_instances
+  max_instances          = var.vpc_connector_max_instances
+}
+
+
+
+
+
 

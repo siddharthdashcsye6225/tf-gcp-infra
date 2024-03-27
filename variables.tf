@@ -69,3 +69,86 @@ variable iam_role_binding2 {}
 variable service_account_scope {
     type = list(string)
 }
+variable cloud_fucntion_name {} 
+variable cloud_function_location {}
+variable cloud_function_description {
+  
+}
+variable cloud_function_runtime {
+  
+}
+variable cloud_function_entry_point {
+  
+}
+variable cloud_function_bucket {
+  
+}
+variable cloud_function_object {
+  
+}
+
+variable service_config_max_instance_count {
+  
+}
+
+variable service_config_min_instance_count {
+  
+}
+
+variable service_config_available_memory {
+  
+}
+
+variable timeout_seconds {
+  
+}
+
+variable cloud_function_ingress_settings {
+  
+}
+
+variable event_trigger_region {
+  
+}
+
+variable event_trigger_event_type {
+  
+}
+
+variable event_trigger_retry_policy {
+  
+}
+
+variable vpc_connector_name {
+  
+}
+
+variable vpc_connector_region {
+  
+}
+
+variable vpc_connector_cidr_range {
+  
+}
+
+variable vpc_connector_min_instances {
+  
+}
+
+variable vpc_connector_max_instances {
+  
+}
+
+variable iam_role_binding_3 {
+  
+}
+
+variable google_pubsub_subscription_name {
+  
+}
+
+variable pubsub_topic_name {
+  
+}
+
+variable message_retention_duration {}
