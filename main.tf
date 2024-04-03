@@ -64,8 +64,10 @@ resource "google_compute_route" "route_for_webapp" {
   priority = 1000
 }
 
+#https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_region_instance_template
+# check out section "Using with Instance Group Manager" for future reference
 resource "google_compute_region_instance_template" "webapp_instance_template" {
-name        = "webapp-instance-template"
+name_prefix        = "webapp-instance-template-" # since it creates before destroying 
 description = "WebApp Regional Compute Instance Template"
 region      = var.region
 machine_type = var.machine_type
@@ -79,8 +81,8 @@ disk_size_gb = var.boot_disk_size
 type  = var.boot_disk_type
 }
 scheduling {
-    automatic_restart   = true
-    on_host_maintenance = "MIGRATE"
+    automatic_restart   = true #Compute Engine will automatically restart the instance if it is terminated unexpectedly. 
+    on_host_maintenance = "MIGRATE" #The instance will be migrated to another host system during maintenance. 
   }
 network_interface {
 network = google_compute_network.webapp_vpc_network.self_link
@@ -93,7 +95,7 @@ scopes = var.service_account_scope
 }
 
 lifecycle {
-    create_before_destroy = true
+    create_before_destroy = true #check link documentation above main resource block for future reference
   }
 
 metadata = {
@@ -119,13 +121,13 @@ EOF
 
 resource "google_compute_health_check" "autohealing_health_check" {
   name                = "autohealing-health-check"
-  check_interval_sec  = 20
-  timeout_sec         = 5
-  healthy_threshold   = 2
-  unhealthy_threshold = 2 
+  check_interval_sec  = 20 #health check will be performed every x seconds
+  timeout_sec         = 5  #if the instance does not respond within x seconds, it will be considered unhealthy.
+  healthy_threshold   = 2 # the instance must pass x consecutive health checks to be considered healthy.
+  unhealthy_threshold = 2 # if the instance fails x consecutive health checks, it will be marked as unhealthy.
 
   tcp_health_check {
-    request = "/healthz"
+    request = "/healthz" 
     port         = "8000"
     port_name = "tcp-port"
   }
@@ -141,7 +143,7 @@ resource "google_compute_region_instance_group_manager" "mig_webapp" {
 
   auto_healing_policies {
     health_check      = google_compute_health_check.autohealing_health_check.id
-    initial_delay_sec = 300
+    initial_delay_sec = 300 #delay before the group starts to recreate unhealthy instances after they are detected as unhealthy
   }
 
   named_port {
@@ -156,11 +158,11 @@ resource "google_compute_region_autoscaler" "my_region_autoscaler" {
   target = google_compute_region_instance_group_manager.mig_webapp.self_link
 
   autoscaling_policy {
-    max_replicas    = 2
-    min_replicas    = 1
-    cooldown_period = 60
+    max_replicas    = 6
+    min_replicas    = 3
+    cooldown_period = 60 #time autoscaler waits to collect new info from mig
     cpu_utilization {
-      target = 0.05
+      target = 0.05 #5% as per assignment req
     }
   }
 }
@@ -452,6 +454,7 @@ resource "google_compute_backend_service" "webapp_backend" {
   }
 }
 
+# Google managed ssl cert (if you're planning to use regional resources, try ssl cert from namecheap)
 resource "google_compute_managed_ssl_certificate" "webapp_ssl" {
   name = "webapp-ssl"
 
@@ -460,15 +463,22 @@ resource "google_compute_managed_ssl_certificate" "webapp_ssl" {
   }
 }
 
+# global static IP address that will be used for the load balancer
 resource "google_compute_global_address" "webapp_lb" {
   name = "webapp-lb"
 }
+
+/*When a request arrives at the load balancer, the load balancer routes the request to a 
+particular backend service or a backend bucket based on the rules defined in the URL map.*/
+#In my case I just have a single backend service, so setting default service as the backend service
 
 resource "google_compute_url_map" "webapp_url_map" {
   name            = "webapp-url-map"
   default_service = google_compute_backend_service.webapp_backend.self_link
 }
 
+/*HTTPS Proxy handles SSL termination and forwards requests to backend services based on the rules defined in the URL Map,
+ which determines how incoming requests are routed to backend services. */
 resource "google_compute_target_https_proxy" "webapp_target_proxy" {
   name        = "webapp-target-proxy"
   url_map     = google_compute_url_map.webapp_url_map.self_link
@@ -476,28 +486,35 @@ resource "google_compute_target_https_proxy" "webapp_target_proxy" {
   ssl_certificates = [google_compute_managed_ssl_certificate.webapp_ssl.id]
 }
 
+#forwarding rule : specifies the target proxy to which the traffic should be directed
 resource "google_compute_global_forwarding_rule" "webapp_forwarding_rule" {
   name       = "webapp-forwarding-rule"
   target     = google_compute_target_https_proxy.webapp_target_proxy.self_link
   port_range = "443"
   ip_protocol = "TCP"
   ip_address = google_compute_global_address.webapp_lb.self_link
-  load_balancing_scheme = "EXTERNAL_MANAGED" 
+  load_balancing_scheme = "EXTERNAL_MANAGED" #may or may not need an explicit compute global address for lb ip since i am using external managed
 }
 
+#allow health check probes from Google's infrastructure
 resource "google_compute_firewall" "webapp_firewall_healthcheck" {
   name    = "webapp-firewall-healthcheck"
   network = google_compute_network.webapp_vpc_network.self_link
-
-
+  priority = 500
   allow {
-    protocol = "tcp"
-
-  
-
-   # Adjust this range to match your load balancer IP range
+    protocol = "all"
 }
- source_ranges = ["130.211.0.0/22", "35.191.0.0/16"]
- destination_ranges = [var.webapp_subnet_cidr]
+ source_ranges = ["130.211.0.0/22", "35.191.0.0/16"] #source ranges where google's health checks originate from
+ destination_ranges = [var.webapp_subnet_cidr] 
  direction = "INGRESS"
+}
+
+resource "google_compute_firewall" "inbound_denyall" {
+  name    = "inbound-denyall"
+  network = google_compute_network.webapp_vpc_network.self_link
+  priority = 900
+  deny {
+    protocol = "all"  
+  }
+  source_ranges = ["0.0.0.0/0"] 
 }
