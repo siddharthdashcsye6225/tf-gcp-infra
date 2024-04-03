@@ -5,7 +5,7 @@ resource "google_project_service" "compute_engine" {
 }
 
 # Create VPC
-resource "google_compute_network" "vpc_network" {
+resource "google_compute_network" "webapp_vpc_network" {
   name                    = var.vpc_name
   auto_create_subnetworks = false
   routing_mode            = var.routing_mode_vpc
@@ -19,12 +19,12 @@ resource "google_compute_global_address" "private_ip_block" {
   address_type  = var.vpc_peering_address_type
   ip_version    = var.vpc_peering_ip_version
   prefix_length = var.vpc_peering_prefix_length
-  network       = google_compute_network.vpc_network.self_link
+  network       = google_compute_network.webapp_vpc_network.self_link
 }
 
 #VPC Peering 
 resource "google_service_networking_connection" "private_vpc_connection" {
-  network                 = google_compute_network.vpc_network.self_link
+  network                 = google_compute_network.webapp_vpc_network.self_link
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip_block.name]
 }
@@ -33,14 +33,14 @@ resource "google_service_networking_connection" "private_vpc_connection" {
 # Create subnets
 resource "google_compute_subnetwork" "webapp_subnet1" {
   name          = var.webapp_subnet_name
-  network       = google_compute_network.vpc_network.self_link
+  network       = google_compute_network.webapp_vpc_network.self_link
   ip_cidr_range = var.webapp_subnet_cidr
   region        = var.region
 }
 
 resource "google_compute_subnetwork" "db_subnet1" {
   name          = var.db_subnet_name
-  network       = google_compute_network.vpc_network.self_link
+  network       = google_compute_network.webapp_vpc_network.self_link
   ip_cidr_range = var.db_subnet_cidr
   region        = var.region
 }
@@ -58,16 +58,117 @@ locals {
 # Add route for webapp subnet
 resource "google_compute_route" "route_for_webapp" {
   name              = var.webapp_route_name
-  network           = google_compute_network.vpc_network.self_link
+  network           = google_compute_network.webapp_vpc_network.self_link
   dest_range        = var.route_dest_range
   next_hop_gateway = var.next_hop_gateway
   priority = 1000
 }
 
+resource "google_compute_region_instance_template" "webapp_instance_template" {
+name        = "webapp-instance-template"
+description = "WebApp Regional Compute Instance Template"
+region      = var.region
+machine_type = var.machine_type
+tags = ["webapp-vm"]
+can_ip_forward = false
+disk {
+source_image = var.boot_disk_image
+auto_delete = true 
+boot = true 
+disk_size_gb = var.boot_disk_size
+type  = var.boot_disk_type
+}
+scheduling {
+    automatic_restart   = true
+    on_host_maintenance = "MIGRATE"
+  }
+network_interface {
+network = google_compute_network.webapp_vpc_network.self_link
+subnetwork = google_compute_subnetwork.webapp_subnet1.self_link
+access_config {}
+}
+service_account {
+email  = google_service_account.webapp_service_account.email
+scopes = var.service_account_scope
+}
+
+lifecycle {
+    create_before_destroy = true
+  }
+
+metadata = {
+startup-script = <<-EOF
+#!/bin/bash
+# Replace the following placeholders with actual database configuration
+export DB_HOST="${google_sql_database_instance.main_primary.private_ip_address}"
+export DB_USER="${google_sql_user.cloudsql_user.name}"
+export DB_PASS="${google_sql_user.cloudsql_user.password}"
+export DB_NAME="${google_sql_database.main.name}"
+
+  # Create a configuration file for the web application
+  echo "SQLALCHEMY_DATABASE_URL=postgresql://$DB_USER:$DB_PASS@$DB_HOST/$DB_NAME" > /tmp/database_url.ini
+  touch /tmp/endofstartupscript.txt
+  chmod 777 /tmp/endofstartupscript.txt
+
+  sudo systemctl daemon-reload
+  sudo systemctl start webservice.service
+  sudo systemctl enable webservice.service
+EOF
+}
+}
+
+resource "google_compute_health_check" "autohealing_health_check" {
+  name                = "autohealing-health-check"
+  check_interval_sec  = 20
+  timeout_sec         = 5
+  healthy_threshold   = 2
+  unhealthy_threshold = 2 
+
+  tcp_health_check {
+    request = "/healthz"
+    port         = "8000"
+    port_name = "tcp-port"
+  }
+}
+
+resource "google_compute_region_instance_group_manager" "mig_webapp" {
+  name = "mig-webapp"
+  base_instance_name         = "webapp"
+  region                     = "us-central1"
+  version {
+    instance_template = google_compute_region_instance_template.webapp_instance_template.self_link
+  }
+
+  auto_healing_policies {
+    health_check      = google_compute_health_check.autohealing_health_check.id
+    initial_delay_sec = 300
+  }
+
+  named_port {
+    name="http"
+    port = 8000
+  }
+
+}
+resource "google_compute_region_autoscaler" "my_region_autoscaler" {
+  name   = "my-region-autoscaler"
+  region = "us-central1"
+  target = google_compute_region_instance_group_manager.mig_webapp.self_link
+
+  autoscaling_policy {
+    max_replicas    = 2
+    min_replicas    = 1
+    cooldown_period = 60
+    cpu_utilization {
+      target = 0.05
+    }
+  }
+}
+
 # Firewall rule to allow traffic to application port
 resource "google_compute_firewall" "webapp_firewall" {
   name    = var.allow_rule_name
-  network = google_compute_network.vpc_network.self_link
+  network = google_compute_network.webapp_vpc_network.self_link
 
   allow {
     protocol = "tcp"
@@ -82,7 +183,7 @@ resource "google_compute_firewall" "webapp_firewall" {
 # Firewall rule to deny SSH traffic
 resource "google_compute_firewall" "deny_ssh_firewall" {
   name    = "deny-ssh-traffic"
-  network = google_compute_network.vpc_network.self_link
+  network = google_compute_network.webapp_vpc_network.self_link
 
   deny {
     protocol = "tcp"
@@ -114,7 +215,7 @@ resource "random_id" "db_name_suffix" {
     
     ip_configuration {
       ipv4_enabled    = var.sql_instance_database_ip4enabled
-      private_network = google_compute_network.vpc_network.self_link
+      private_network = google_compute_network.webapp_vpc_network.self_link
       enable_private_path_for_google_cloud_services = true  
     }
 
@@ -147,7 +248,7 @@ resource "random_password" "cloudsql_password" {
 #Firewall to restrict access to db instance to just the webapp vm 
 resource "google_compute_firewall" "cloudsql_access" {
   name    = var.database_firewall_name
-  network = google_compute_network.vpc_network.self_link
+  network = google_compute_network.webapp_vpc_network.self_link
 
   allow {
     protocol = "tcp"
@@ -162,6 +263,7 @@ output "cloudsql_private_ip" {
   value = google_sql_database_instance.main_primary.private_ip_address
 }
 
+/*
 # Compute Engine instance
 resource "google_compute_instance" "web_instance" {
   name         = var.instance_name
@@ -211,13 +313,15 @@ resource "google_compute_instance" "web_instance" {
   EOF
 }
 
+*/
+
 # Update DNS records
 resource "google_dns_record_set" "webapp_dns_record" {
   managed_zone = var.dns_managed_zone
   name    = var.domain_name
   type    = var.dns_record_type
   ttl     = var.dns_record_ttl
-  rrdatas = [google_compute_instance.web_instance.network_interface[0].access_config[0].nat_ip]
+  rrdatas = [google_compute_global_address.webapp_lb.address]
 
 }
 
@@ -273,7 +377,7 @@ resource "google_project_iam_binding" "pubsub_publisher_binding" {
 }
 
 
-resource "google_cloudfunctions2_function" "process_pubsub" {
+resource "google_cloudfunctions2_function" "pubsub_process" {
   name        = var.cloud_fucntion_name
   location      = var.cloud_function_location
   description = var.cloud_function_description
@@ -322,14 +426,78 @@ resource "google_cloudfunctions2_function" "process_pubsub" {
 resource "google_vpc_access_connector" "vpc_connector" {
   name                   = var.vpc_connector_name
   region                 = var.vpc_connector_region
-  network                = google_compute_network.vpc_network.name
+  network                = google_compute_network.webapp_vpc_network.name
   ip_cidr_range          = var.vpc_connector_cidr_range
   min_instances          = var.vpc_connector_min_instances
   max_instances          = var.vpc_connector_max_instances
 }
 
+resource "google_compute_backend_service" "webapp_backend" {
+  name                    = "webapp-backend-service"
+  protocol                = "HTTP"
+  timeout_sec             = 30
+  port_name               = "http"
+  enable_cdn              = false
+  health_checks = [google_compute_health_check.autohealing_health_check.id]
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  locality_lb_policy = "ROUND_ROBIN"
+   log_config {
+    enable      = true
+    sample_rate = 1
+  }
+  backend {
+    group = google_compute_region_instance_group_manager.mig_webapp.instance_group
+    balancing_mode = "UTILIZATION"
+    capacity_scaler = 1.0
+  }
+}
+
+resource "google_compute_managed_ssl_certificate" "webapp_ssl" {
+  name = "webapp-ssl"
+
+  managed {
+    domains = ["siddharthdash.me"]
+  }
+}
+
+resource "google_compute_global_address" "webapp_lb" {
+  name = "webapp-lb"
+}
+
+resource "google_compute_url_map" "webapp_url_map" {
+  name            = "webapp-url-map"
+  default_service = google_compute_backend_service.webapp_backend.self_link
+}
+
+resource "google_compute_target_https_proxy" "webapp_target_proxy" {
+  name        = "webapp-target-proxy"
+  url_map     = google_compute_url_map.webapp_url_map.self_link
+  depends_on = [ google_compute_managed_ssl_certificate.webapp_ssl ]
+  ssl_certificates = [google_compute_managed_ssl_certificate.webapp_ssl.id]
+}
+
+resource "google_compute_global_forwarding_rule" "webapp_forwarding_rule" {
+  name       = "webapp-forwarding-rule"
+  target     = google_compute_target_https_proxy.webapp_target_proxy.self_link
+  port_range = "443"
+  ip_protocol = "TCP"
+  ip_address = google_compute_global_address.webapp_lb.self_link
+  load_balancing_scheme = "EXTERNAL_MANAGED" 
+}
+
+resource "google_compute_firewall" "webapp_firewall_healthcheck" {
+  name    = "webapp-firewall-healthcheck"
+  network = google_compute_network.webapp_vpc_network.self_link
 
 
+  allow {
+    protocol = "tcp"
 
+  
 
-
+   # Adjust this range to match your load balancer IP range
+}
+ source_ranges = ["130.211.0.0/22", "35.191.0.0/16"]
+ destination_ranges = [var.webapp_subnet_cidr]
+ direction = "INGRESS"
+}

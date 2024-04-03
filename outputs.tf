@@ -1,5 +1,5 @@
 output "vpc_id" {
-  value = google_compute_network.vpc_network.id
+  value = google_compute_network.webapp_vpc_network.id
 }
 
 output "webapp_subnet_id" {
