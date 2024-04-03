@@ -152,3 +152,66 @@ variable pubsub_topic_name {
 }
 
 variable message_retention_duration {}
+
+variable instance_template_name_prefix {}
+variable instance_template_description {} 
+variable instance_template_scheduling_maintenance {}
+variable health_check_name {}
+variable health_check_check_interval_sec {}
+variable health_check_timeout_sec {
+  
+}
+variable health_check_healthy_threshold {}
+variable health_check_unhealthy_threshold {}
+variable tcp_health_check_endpoint {}
+variable tcp_health_check_port {}
+variable tcp_health_check_port_name {}
+variable instance_region_group {}
+variable instance_group_name {}
+variable instance_group_base_instance_name {}
+variable instance_group_region {}
+variable instance_group_autohealing_initial_delay_seconds {}
+variable instance_group_named_port_name {}
+variable instance_group_named_port_number {
+  
+}
+variable autoscale_name {}
+variable autoscale_region {}
+variable autoscaling_policy_max_replicas {}
+variable autoscaling_policy_min_replicas {}
+variable autoscaling_policy_cooldown_period {}
+variable autoscaling_cpu_utilization_target {}
+
+variable backend_service_name {}
+variable backend_service_protocol {}
+variable backend_service_timeout_sec {}
+variable backend_service_port_name {}
+variable backend_service_load_balancing_scheme {}
+variable backend_service_lb_policy {}
+variable backend_service_log_config_sample_rate {}
+variable backend_service_balancing_mode {}
+variable backend_service_capacity_scaler {}
+variable ssl_certificate_name {}
+variable ssl_domain {}
+variable webapp_lb {}
+variable webapp_url_map_name {}
+variable webapp_target_proxy_name {}
+variable webapp_forwarding_rule_name {}
+variable webapp_forwarding_rule_port_range {
+  
+}
+variable webapp_forwarding_rule_ip_protocol {}
+variable forwarding_rule_load_balancing_scheme {}
+variable healthcheck_firewall_name {}
+variable healthcheck_firewall_priority {}
+variable healthcheck_firewall_sourceranges {
+    type = list(string)
+}
+variable healthcheck_firewall_protocol {}
+variable healthcheck_firewall_direction {}
+variable inbound_denyall_firewall_name {}
+variable inbound_denyall_firewall_priority {}
+variable inbound_denyall_fireall_source_ranges{
+    type = list(string)
+}
+variable inbound_denyall_firewall_protocol {}
