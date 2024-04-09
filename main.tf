@@ -79,6 +79,9 @@ auto_delete = true
 boot = true 
 disk_size_gb = var.boot_disk_size
 type  = var.boot_disk_type
+disk_encryption_key {
+  kms_key_self_link = google_kms_crypto_key.vm_crypto_key.id
+}
 }
 scheduling {
     automatic_restart   = true #Compute Engine will automatically restart the instance if it is terminated unexpectedly. 
@@ -202,10 +205,19 @@ resource "random_id" "db_name_suffix" {
 }
 
 
+# CREATING A SERVICE ACCOUNT ASSOCIATED WITH THE SQL INSTANCE - WE WILL USE THIS ACCOUNT TO GRANT ENCR/DECR access 
+resource "google_project_service_identity" "cloudsql_sa" {
+  provider = google-beta
+
+  project = var.project_id
+  service = "sqladmin.googleapis.com"
+}
+
   resource "google_sql_database_instance" "main_primary" {
   name             = "webapp-primary-${random_id.db_name_suffix.hex}"  #Terraform will randomly generate one when the instance is first created. This is done because after a name is used, it cannot be reused for up to one week.
   database_version = var.sql_instance_database_version
   region           = var.sql_instance_database_region
+  encryption_key_name = google_kms_crypto_key.cloudsql_crypto_key.id
   depends_on       = [google_service_networking_connection.private_vpc_connection]
 
 
@@ -518,3 +530,93 @@ resource "google_compute_firewall" "inbound_denyall" {
   }
   source_ranges = var.inbound_denyall_fireall_source_ranges
 }
+
+resource "google_kms_key_ring" "webapp_key_ring1" {
+  name     = "webapp-key-ring1"
+  location = "us-central1"
+}
+
+# Virtual Machine CMEK
+resource "google_kms_crypto_key" "vm_crypto_key" {
+  name            = "vm-crypto-key"
+  key_ring        = google_kms_key_ring.webapp_key_ring1.id
+  rotation_period = "2592000s" # 30 days
+}
+
+# CloudSQL CMEK
+resource "google_kms_crypto_key" "cloudsql_crypto_key" {
+  name            = "cloudsql-crypto-key"
+  key_ring        = google_kms_key_ring.webapp_key_ring1.id
+  rotation_period = "2592000s" # 30 days
+}
+
+# Cloud Storage CMEK
+resource "google_kms_crypto_key" "storage_crypto_key" {
+  name            = "storage-crypto-key"
+  key_ring        = google_kms_key_ring.webapp_key_ring1.id
+  rotation_period = "2592000s" # 30 days
+}
+
+
+/*
+BELOW IS THE IAM BINDING ROLES GIVEN TO SERVICE ACCOUNT FOR ENCRYPTER DECRYPTER PERMISSIONS ON KEYS CREATED 
+*/
+
+# Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account for compute engine on the Compute Engine/VM CMEK
+resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
+  crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:${google_service_account.webapp_service_account.email}"
+  ]
+}
+
+# Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the service account created for cloudsql on the CloudSQL CMEK
+resource "google_kms_crypto_key_iam_binding" "cloudsql_crypto_key_iam_binding" {
+  crypto_key_id = google_kms_crypto_key.cloudsql_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:${google_project_service_identity.cloudsql_sa.email}"
+  ]
+}
+/*
+# Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account on the Storage CMEK
+resource "google_kms_crypto_key_iam_binding" "storage_crypto_key_iam_binding" {
+  crypto_key_id = google_kms_crypto_key.storage_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:${google_service_account.webapp_service_account.email}"
+  ]
+}
+*/
+/* ASSIGNING ENCRYPTER DECRYPTER ROLE */
+# START 
+data "google_project" "current" {}
+
+
+data "google_iam_policy" "kms_key_encrypt_decrypt" {
+  binding {
+    role = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+    members = ["serviceAccount:service-19431195507@compute-system.iam.gserviceaccount.com"]
+    
+  }
+}
+
+resource "google_kms_crypto_key_iam_policy" "storage_crypto_key_iam_policy" {
+  crypto_key_id = google_kms_crypto_key.storage_crypto_key.id
+  policy_data   = data.google_iam_policy.kms_key_encrypt_decrypt.policy_data
+}
+
+resource "google_kms_crypto_key_iam_policy" "cloudsql_crypto_key_iam_policy" {
+  crypto_key_id = google_kms_crypto_key.cloudsql_crypto_key.id
+  policy_data   = data.google_iam_policy.kms_key_encrypt_decrypt.policy_data
+}
+
+resource "google_kms_crypto_key_iam_policy" "vm_crypto_key_iam_policy" {
+  crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
+  policy_data   = data.google_iam_policy.kms_key_encrypt_decrypt.policy_data
+}
+/* ASSIGNING ENCRYPTER DECRYPTER ROLE */
+# END 
+
+
