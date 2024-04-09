@@ -532,7 +532,7 @@ resource "google_compute_firewall" "inbound_denyall" {
 }
 
 resource "google_kms_key_ring" "webapp_key_ring1" {
-  name     = "webapp-key-ring1"
+  name     = "webapp-key-ring2"
   location = "us-central1"
 }
 
@@ -562,7 +562,7 @@ resource "google_kms_crypto_key" "storage_crypto_key" {
 BELOW IS THE IAM BINDING ROLES GIVEN TO SERVICE ACCOUNT FOR ENCRYPTER DECRYPTER PERMISSIONS ON KEYS CREATED 
 */
 
-# Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account for compute engine on the Compute Engine/VM CMEK
+/*# Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account for compute engine on the Compute Engine/VM CMEK
 resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
   crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
@@ -570,6 +570,16 @@ resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
     "serviceAccount:${google_service_account.webapp_service_account.email}"
   ]
 }
+*/
+# Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account for compute engine on the Compute Engine/VM CMEK
+resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
+  crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:service-19431195507@compute-system.iam.gserviceaccount.com"
+  ]
+}
+
 
 # Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the service account created for cloudsql on the CloudSQL CMEK
 resource "google_kms_crypto_key_iam_binding" "cloudsql_crypto_key_iam_binding" {
@@ -593,7 +603,7 @@ resource "google_kms_crypto_key_iam_binding" "storage_crypto_key_iam_binding" {
 # START 
 data "google_project" "current" {}
 
-
+/*
 data "google_iam_policy" "kms_key_encrypt_decrypt" {
   binding {
     role = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
@@ -616,7 +626,120 @@ resource "google_kms_crypto_key_iam_policy" "vm_crypto_key_iam_policy" {
   crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
   policy_data   = data.google_iam_policy.kms_key_encrypt_decrypt.policy_data
 }
+*/
 /* ASSIGNING ENCRYPTER DECRYPTER ROLE */
 # END 
 
+# Create Secret for DB_HOST
+resource "google_secret_manager_secret" "db_host_secret" {
+  project = data.google_project.current.project_id
+  secret_id = "db-host-secret"
+  replication {
+    auto {}
+  }
+
+}
+
+resource "google_secret_manager_secret_version" "db_host_secret_version" {
+  secret = google_secret_manager_secret.db_host_secret.name
+  secret_data = base64encode(google_sql_database_instance.main_primary.private_ip_address)
+}
+
+# Create Secret for DB_USER
+resource "google_secret_manager_secret" "db_user_secret" {
+  project = data.google_project.current.project_id
+  secret_id = "db-user-secret"
+   replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_user_secret_version" {
+  secret = google_secret_manager_secret.db_user_secret.name
+  secret_data = base64encode(google_sql_user.cloudsql_user.name)
+}
+
+# Create Secret for DB_PASS
+resource "google_secret_manager_secret" "db_pass_secret" {
+  project = data.google_project.current.project_id
+  secret_id = "db-pass-secret"
+   replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_pass_secret_version" {
+  secret = google_secret_manager_secret.db_pass_secret.name
+  secret_data = base64encode(google_sql_user.cloudsql_user.password)
+}
+
+# Create Secret for DB_NAME
+resource "google_secret_manager_secret" "db_name_secret" {
+  project = data.google_project.current.project_id
+  secret_id = "db-name-secret"
+   replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_name_secret_version" {
+  secret = google_secret_manager_secret.db_name_secret.name
+  secret_data = base64encode(google_sql_database.main.name)
+}
+
+# Create Secret for KM Key Self Link
+resource "google_secret_manager_secret" "kms_key_secret" {
+  project   = data.google_project.current.project_id
+  secret_id = "kms-key-secret"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "kms_key_secret_version" {
+  secret      = google_secret_manager_secret.kms_key_secret.name
+  secret_data = google_kms_crypto_key.vm_crypto_key.id
+}
+
+# Create Secret for Network Self Link
+resource "google_secret_manager_secret" "network_secret" {
+  project   = data.google_project.current.project_id
+  secret_id = "network-secret"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "network_secret_version" {
+  secret      = google_secret_manager_secret.network_secret.name
+  secret_data = google_compute_network.webapp_vpc_network.self_link
+}
+
+# Create Secret for Subnetwork Self Link
+resource "google_secret_manager_secret" "subnetwork_secret" {
+  project   = data.google_project.current.project_id
+  secret_id = "subnetwork-secret"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "subnetwork_secret_version" {
+  secret      = google_secret_manager_secret.subnetwork_secret.name
+  secret_data = google_compute_subnetwork.webapp_subnet1.self_link
+}
+
+# Create Secret for Service Account Email
+resource "google_secret_manager_secret" "service_account_secret" {
+  project   = data.google_project.current.project_id
+  secret_id = "service-account-secret"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "service_account_secret_version" {
+  secret      = google_secret_manager_secret.service_account_secret.name
+  secret_data = google_service_account.webapp_service_account.email
+}
 
