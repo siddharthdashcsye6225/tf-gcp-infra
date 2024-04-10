@@ -215,3 +215,12 @@ variable inbound_denyall_fireall_source_ranges{
     type = list(string)
 }
 variable inbound_denyall_firewall_protocol {}
+variable service_identity {}
+variable bucket_name {}
+variable bucket_object{}
+variable bucket_object_source{}
+variable vm_keyname {}
+variable rotation_period_key{}
+variable sql_keyname{}
+variable storage_keyname{}
+variable cryptoKeyEncrypterDecrypterrole{}
