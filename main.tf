@@ -210,7 +210,7 @@ resource "google_project_service_identity" "cloudsql_sa" {
   provider = google-beta
 
   project = var.project_id
-  service = "sqladmin.googleapis.com"
+  service = var.service_identity
 }
 
   resource "google_sql_database_instance" "main_primary" {
@@ -390,6 +390,22 @@ resource "google_project_iam_binding" "pubsub_publisher_binding" {
   ]
 }
 
+resource "google_storage_bucket" "webapp_bucket_csye" {
+  name = var.bucket_name
+  uniform_bucket_level_access = false
+  location = var.region
+  depends_on = [google_kms_crypto_key_iam_policy.storage_crypto_key_iam_policy]
+  encryption {
+    default_kms_key_name = google_kms_crypto_key.storage_crypto_key.id
+  }
+}
+
+resource "google_storage_bucket_object" "pubsub_function_object" {
+  name   = var.bucket_object
+  source = var.bucket_object_source
+  bucket = google_storage_bucket.webapp_bucket_csye.name
+}
+
 
 resource "google_cloudfunctions2_function" "pubsub_process" {
   name        = var.cloud_fucntion_name
@@ -400,8 +416,8 @@ resource "google_cloudfunctions2_function" "pubsub_process" {
     entry_point = var.cloud_function_entry_point
     source {
       storage_source {
-        bucket = var.cloud_function_bucket
-        object = var.cloud_function_object
+        bucket = google_storage_bucket.webapp_bucket_csye.name
+        object = google_storage_bucket_object.pubsub_function_object.name
       }
     }
   }
@@ -531,30 +547,36 @@ resource "google_compute_firewall" "inbound_denyall" {
   source_ranges = var.inbound_denyall_fireall_source_ranges
 }
 
-resource "google_kms_key_ring" "webapp_key_ring1" {
-  name     = "webapp-key-ring2"
-  location = "us-central1"
+
+resource "random_id" "key_ring_id" {
+  byte_length = 4
 }
+
+resource "google_kms_key_ring" "webapp_key_ring1" {
+  name     = "webapp-key-ring-${random_id.key_ring_id.hex}"
+  location = var.region
+}
+
 
 # Virtual Machine CMEK
 resource "google_kms_crypto_key" "vm_crypto_key" {
-  name            = "vm-crypto-key"
+  name            = var.vm_keyname
   key_ring        = google_kms_key_ring.webapp_key_ring1.id
-  rotation_period = "2592000s" # 30 days
+  rotation_period = var.rotation_period_key # 30 days
 }
 
 # CloudSQL CMEK
 resource "google_kms_crypto_key" "cloudsql_crypto_key" {
-  name            = "cloudsql-crypto-key"
+  name            = var.sql_keyname
   key_ring        = google_kms_key_ring.webapp_key_ring1.id
-  rotation_period = "2592000s" # 30 days
+  rotation_period = var.rotation_period_key # 30 days
 }
 
 # Cloud Storage CMEK
 resource "google_kms_crypto_key" "storage_crypto_key" {
-  name            = "storage-crypto-key"
+  name            = var.storage_keyname
   key_ring        = google_kms_key_ring.webapp_key_ring1.id
-  rotation_period = "2592000s" # 30 days
+  rotation_period = var.rotation_period_key # 30 days
 }
 
 
@@ -571,10 +593,14 @@ resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
   ]
 }
 */
+
+data "google_project" "current" {}
+
+
 # Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account for compute engine on the Compute Engine/VM CMEK
 resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
   crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
-  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  role          = var.cryptoKeyEncrypterDecrypterrole
   members = [
     "serviceAccount:service-19431195507@compute-system.iam.gserviceaccount.com"
   ]
@@ -584,30 +610,31 @@ resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
 # Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the service account created for cloudsql on the CloudSQL CMEK
 resource "google_kms_crypto_key_iam_binding" "cloudsql_crypto_key_iam_binding" {
   crypto_key_id = google_kms_crypto_key.cloudsql_crypto_key.id
-  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  role          = var.cryptoKeyEncrypterDecrypterrole
   members = [
     "serviceAccount:${google_project_service_identity.cloudsql_sa.email}"
   ]
 }
+
 /*
 # Grant the "Cloud KMS CryptoKey Encrypter/Decrypter" role to the existing service account on the Storage CMEK
 resource "google_kms_crypto_key_iam_binding" "storage_crypto_key_iam_binding" {
   crypto_key_id = google_kms_crypto_key.storage_crypto_key.id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
   members = [
-    "serviceAccount:${google_service_account.webapp_service_account.email}"
+    "serviceAccount:service-19431195507@gs-project-accounts.iam.gserviceaccount.com"
+    service-19431195507@gs-project-accounts.iam.gserviceaccount.com
   ]
 }
 */
+
 /* ASSIGNING ENCRYPTER DECRYPTER ROLE */
 # START 
-data "google_project" "current" {}
 
-/*
 data "google_iam_policy" "kms_key_encrypt_decrypt" {
   binding {
-    role = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
-    members = ["serviceAccount:service-19431195507@compute-system.iam.gserviceaccount.com"]
+    role = var.cryptoKeyEncrypterDecrypterrole
+    members = ["serviceAccount:service-19431195507@gs-project-accounts.iam.gserviceaccount.com"]
     
   }
 }
@@ -617,6 +644,7 @@ resource "google_kms_crypto_key_iam_policy" "storage_crypto_key_iam_policy" {
   policy_data   = data.google_iam_policy.kms_key_encrypt_decrypt.policy_data
 }
 
+/*
 resource "google_kms_crypto_key_iam_policy" "cloudsql_crypto_key_iam_policy" {
   crypto_key_id = google_kms_crypto_key.cloudsql_crypto_key.id
   policy_data   = data.google_iam_policy.kms_key_encrypt_decrypt.policy_data
@@ -629,7 +657,7 @@ resource "google_kms_crypto_key_iam_policy" "vm_crypto_key_iam_policy" {
 */
 /* ASSIGNING ENCRYPTER DECRYPTER ROLE */
 # END 
-
+/*
 # Create Secret for DB_HOST
 resource "google_secret_manager_secret" "db_host_secret" {
   project = data.google_project.current.project_id
@@ -742,4 +770,4 @@ resource "google_secret_manager_secret_version" "service_account_secret_version"
   secret      = google_secret_manager_secret.service_account_secret.name
   secret_data = google_service_account.webapp_service_account.email
 }
-
+*/
