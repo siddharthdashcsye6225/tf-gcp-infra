@@ -224,3 +224,5 @@ variable rotation_period_key{}
 variable sql_keyname{}
 variable storage_keyname{}
 variable cryptoKeyEncrypterDecrypterrole{}
+variable compute_system_service_identity {}
+variable gs_project_accounts_service_identity{}
