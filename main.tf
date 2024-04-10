@@ -602,7 +602,7 @@ resource "google_kms_crypto_key_iam_binding" "vm_crypto_key_iam_binding" {
   crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
   role          = var.cryptoKeyEncrypterDecrypterrole
   members = [
-    "serviceAccount:service-19431195507@compute-system.iam.gserviceaccount.com"
+   var.compute_system_service_identity
   ]
 }
 
@@ -634,8 +634,7 @@ resource "google_kms_crypto_key_iam_binding" "storage_crypto_key_iam_binding" {
 data "google_iam_policy" "kms_key_encrypt_decrypt" {
   binding {
     role = var.cryptoKeyEncrypterDecrypterrole
-    members = ["serviceAccount:service-19431195507@gs-project-accounts.iam.gserviceaccount.com"]
-    
+    members = [var.gs_project_accounts_service_identity]
   }
 }
 
