@@ -635,7 +635,6 @@ data "google_iam_policy" "kms_key_encrypt_decrypt" {
   binding {
     role = var.cryptoKeyEncrypterDecrypterrole
     members = [var.gs_project_accounts_service_identity]
-    
   }
 }
 
