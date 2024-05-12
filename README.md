@@ -23,12 +23,13 @@ Before proceeding, ensure you have the following:
 1. Install and set up the gcloud CLI and Terraform on your local machine.
 
 2. Clone the repository containing the Terraform configuration files using the following command:
-   `git clone git@github.com:ShreeCloud/tf-gcp-infra.git`
+   `git@github.com:siddharthdashcsye6225/tf-gcp-infra.git`
+   
 
-3. Navigate to the cloned repository directory:
+4. Navigate to the cloned repository directory:
    `cd tf-gcp-infra`
 
-4. **Review and update Terraform configuration**:
+5. **Review and update Terraform configuration**:
 - Create a new Terraform configuration file (e.g., main.tf) or modify the existing ones to define the required resources such as networks and subnets. Ensure that the values are not hard-coded in your Terraform configuration files. You can use variables to make the configuration dynamic.
 - variables are defined in a separate file (e.g., variables.tf) to hold values like project ID, region, VPC CIDR range, etc. This allows you to reuse the same Terraform configuration for multiple VPCs by changing the variable values.
 
