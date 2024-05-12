@@ -2,7 +2,7 @@
 
 ## Infrastructure Architecture
 
-![Architecture Diagram](Cloud_Architecture.drawio.svg)
+![Architecture Diagram](CSYE6225_architecture_diagram.drawio.svg)
 
 ## Introduction
 
